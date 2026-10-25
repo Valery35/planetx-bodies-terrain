@@ -93,8 +93,11 @@ class Grid:
         x0 = np.floor(fx).astype(int) % bw
         x1 = (x0 + 1) % bw
         tx = fx - np.floor(fx)
-        a00, a01 = a[y0][:, x0], a[y0][:, x1]
-        a10, a11 = a[y1][:, x0], a[y1][:, x1]
+        # Выборка сразу по рядам и столбцам: a[y0][:, x0] копировал всю
+        # полосу ширины сетки на каждый тайл.
+        ry0, ry1 = y0[:, None], y1[:, None]
+        a00, a01 = a[ry0, x0[None, :]], a[ry0, x1[None, :]]
+        a10, a11 = a[ry1, x0[None, :]], a[ry1, x1[None, :]]
         ty = ty[:, None]
         return (a00 * (1 - tx) + a01 * tx) * (1 - ty) + (a10 * (1 - tx) + a11 * tx) * ty
 
