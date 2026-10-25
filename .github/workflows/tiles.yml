@@ -1,0 +1,61 @@
+# PlanetX Lite - глобус PlanetX без QGIS.
+# Copyright (C) 2026 ООО «Информ++». Лицензия Apache 2.0.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Разовая нарезка высот Марса и Луны (scripts/tiles.py), запуск вручную.
+# Тела идут по очереди: сетка скачивается, проверяется по известной
+# вершине, режется в тайлы, удаляется. Места на машине задачи около
+# 14 ГБ, сетка Луны - 8 ГБ. Тайлы уходят в ветку main частями меньше
+# 2 ГБ - предел одной отправки GitHub.
+
+name: Нарезка высот
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tiles
+  cancel-in-progress: false
+
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GDAL
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gdal-bin python3-gdal python3-numpy python3-pil
+
+      - name: Высоты тел
+        run: |
+          git config user.name "planetx-bodies"
+          git config user.email "planetx-bodies@users.noreply.github.com"
+          agent="PlanetX-bodies tiles (+https://github.com/Valery35/planetx-bodies-terrain)"
+          base="https://planetarymaps.usgs.gov/mosaic"
+          send() {
+            git add "$1"
+            git commit -q -m "$2" || return 0
+            git push -q origin HEAD:main
+          }
+          body() {
+            key="$1"; file="$2"; lat="$3"; lon="$4"; low="$5"; high="$6"; name="$7"
+            curl -fsSL --retry 3 --retry-delay 30 -A "$agent" -o grid.tif "$base/$file"
+            gdalinfo grid.tif | head -n 40
+            python3 scripts/tiles.py check grid.tif "$lat" "$lon" "$low" "$high" "$name"
+            python3 scripts/tiles.py grid.tif "$key" 0 6
+            send "$key" "$key: высоты, уровни 0-6"
+            python3 scripts/tiles.py grid.tif "$key" 7 7
+            rm -f grid.tif
+            send "$key" "$key: высоты, уровень 7"
+            du -sh "$key"
+          }
+          # Олимп - 21.2 км над ареоидом, высшая точка Луны - 10.8 км
+          # над сферой 1737.4 км.
+          body mars Mars_MGS_MOLA_DEM_mosaic_global_463m.tif 18.65 -133.8 18000 23000 "Olympus Mons"
+          body moon Lunar_LRO_LOLA_Global_LDEM_118m_Mar2014.tif 5.41 -158.63 9000 11500 "Moon summit"
